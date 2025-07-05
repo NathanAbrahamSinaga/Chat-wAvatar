@@ -24,6 +24,11 @@ let scene, camera, renderer, clock;
 let vrm;
 let isTalking = false;
 let audio;
+let audioContext;
+let analyser;
+let dataArray;
+let source;
+let isAudioConnected = false;
 
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
@@ -110,7 +115,7 @@ function loadVRMModel() {
             
             vrm.scene.rotation.y = Math.PI;
             
-            vrm.scene.position.y = 2;
+            vrm.scene.position.y = 0.5;
             
             console.log('VRM scene added to main scene');
             console.log('Scene children count:', scene.children.length);
@@ -141,26 +146,58 @@ function animate() {
     if (vrm) {
         vrm.update(delta);
         
-        const basePosition = 0.7;
-        const time = Date.now() * 0.001;
-        
-        if (isTalking) {
-            vrm.scene.position.y = basePosition + Math.sin(time * 5) * 0.02;
+        if (isTalking && analyser && vrm.expressionManager) {
+            analyser.getByteFrequencyData(dataArray);
             
-            const mouthOpen = 0.3 + 0.7 * Math.sin(time * 10);
-            if (vrm.expressionManager) {
-                vrm.expressionManager.setValue('a', mouthOpen);
-            }
-        } else {
-            vrm.scene.position.y = basePosition + Math.sin(time * 2) * 0.01;
+            let sum = 0;
+            let count = 0;
             
-            if (vrm.expressionManager) {
-                vrm.expressionManager.setValue('a', 0);
+            for (let i = 2; i < 50; i++) {
+                sum += dataArray[i];
+                count++;
             }
+            
+            const averageAmplitude = sum / count;
+            const normalizedAmplitude = averageAmplitude / 255;
+            
+            const mouthIntensity = Math.max(0, Math.min(1, normalizedAmplitude * 2));
+            
+            const currentMouthValue = vrm.expressionManager.getValue('a') || 0;
+            const smoothedValue = currentMouthValue * 0.7 + mouthIntensity * 0.3;
+            
+            vrm.expressionManager.setValue('a', smoothedValue);
+            
+            if (mouthIntensity > 0.3) {
+                const randomVariation = Math.random() * 0.2;
+                if (Math.random() > 0.5) {
+                    vrm.expressionManager.setValue('i', randomVariation);
+                    vrm.expressionManager.setValue('u', 0);
+                } else {
+                    vrm.expressionManager.setValue('u', randomVariation);
+                    vrm.expressionManager.setValue('i', 0);
+                }
+            } else {
+                vrm.expressionManager.setValue('i', 0);
+                vrm.expressionManager.setValue('u', 0);
+            }
+        } else if (vrm.expressionManager && !isTalking) {
+            vrm.expressionManager.setValue('a', 0);
+            vrm.expressionManager.setValue('i', 0);
+            vrm.expressionManager.setValue('u', 0);
         }
     }
 
     renderer.render(scene, camera);
+}
+
+function initAudioContext() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.8;
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+    }
 }
 
 chatForm.addEventListener('submit', async (e) => {
@@ -184,7 +221,8 @@ chatForm.addEventListener('submit', async (e) => {
         addMessage(aiResponseText, 'ai');
         
         const audioBlob = await getElevenLabsAudio(aiResponseText);
-        await playAudioAndAnimate(audioBlob);
+        await playAudioWithMouthSync(audioBlob);
+        
     } catch (error) {
         console.error('Error in chat flow:', error);
         addMessage('Maaf, terjadi kesalahan. Coba lagi nanti. Lihat console untuk detail.', 'ai');
@@ -213,7 +251,7 @@ async function getGeminiResponse(prompt) {
     const requestBody = {
         contents: [{
             parts: [{
-                text: "Kamu adalah VTuber perempuan bernama AURA dari Indonesia. Jawablah pertanyaan dengan gaya yang ceria, ramah, dan sedikit gaul. Gunakan bahasa Indonesia yang santai. Jangan gunakan tanda asteris (*) untuk menandai tindakan. Jawab pertanyaan berikut: " + prompt
+                text: "Kamu adalah avatar perempuan bernama AURA. Jawablah pertanyaan dengan gaya yang ceria, ramah, dan sedikit gaul. Gunakan bahasa Indonesia yang santai, tapi nulis kata harus benar (jangan begini contoh : semuaa, kitaa, kamuu). Jangan terlalu panjang dan hanya gunakan tanda baca titik, koma, seru, dan tanda tanya. Jawab pertanyaan berikut: " + prompt
             }]
         }],
         safetySettings: [
@@ -278,35 +316,74 @@ async function getElevenLabsAudio(text) {
     return response.blob();
 }
 
-function playAudioAndAnimate(audioBlob) {
+function playAudioWithMouthSync(audioBlob) {
     return new Promise((resolve, reject) => {
+        initAudioContext();
+        
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+        
         if (audio) {
             audio.pause();
+            audio.currentTime = 0;
+        }
+        
+        if (source) {
+            try {
+                source.disconnect();
+            } catch (e) {
+                console.log('Source already disconnected');
+            }
+            source = null;
         }
         
         const audioUrl = URL.createObjectURL(audioBlob);
         audio = new Audio(audioUrl);
+        audio.crossOrigin = 'anonymous';
+        isAudioConnected = false;
         
         audio.oncanplaythrough = () => {
-            isTalking = true;
-            audio.play().catch(e => {
-                console.error("Audio play failed:", e);
+            try {
+                if (!isAudioConnected) {
+                    source = audioContext.createMediaElementSource(audio);
+                    source.connect(analyser);
+                    analyser.connect(audioContext.destination);
+                    isAudioConnected = true;
+                }
+                
+                isTalking = true;
+                audio.play().catch(e => {
+                    console.error("Audio play failed:", e);
+                    isTalking = false;
+                    reject(e);
+                });
+            } catch (e) {
+                console.error("Audio context setup failed:", e);
                 isTalking = false;
                 reject(e);
-            });
+            }
         };
         
         audio.onended = () => {
             isTalking = false;
+            isAudioConnected = false;
             URL.revokeObjectURL(audioUrl);
             resolve();
         };
         
         audio.onerror = (err) => {
             isTalking = false;
+            isAudioConnected = false;
             URL.revokeObjectURL(audioUrl);
             console.error('Audio playback error:', err);
             reject(err);
+        };
+        
+        audio.onloadeddata = () => {
+            if (audio.readyState >= 2 && !isAudioConnected) {
+                audio.oncanplaythrough();
+            }
         };
     });
 }
