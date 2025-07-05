@@ -85,7 +85,7 @@ function loadVRMModel() {
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
 
-    const modelPath = './models/IstriOrang.vrm';
+    const modelPath = './assets/IstriOrang.vrm';
 
     console.log('Loading VRM model from:', modelPath);
 
