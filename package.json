@@ -1,0 +1,22 @@
+{
+  "name": "vanime",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "description": "",
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.4.1",
+    "three": "^0.178.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

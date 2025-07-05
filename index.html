@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VTuber AI Native JS</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div id="ui-container">
+        <div id="chat-container">
+            <!-- Pesan akan ditambahkan di sini oleh JavaScript -->
+        </div>
+        <form id="chat-form">
+            <input type="text" id="chat-input" placeholder="Ngobrol" autocomplete="off" required>
+            <button type="submit" id="send-button">Kirim</button>
+        </form>
+    </div>
+
+    <!-- type="module" sangat penting untuk menggunakan import/export -->
+    <script type="module" src="main.js"></script>
+</body>
+</html>
