@@ -4,7 +4,6 @@ import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
 let GEMINI_API_KEY, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID;
-
 try {
     if (import.meta.env.PROD) {
         GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -27,18 +26,16 @@ let mixer;
 let animationActions = {}; 
 let activeAction; 
 let isTalking = false;
-let audio;
+let audioPlayer; 
 let audioContext;
 let analyser;
 let dataArray;
-let source;
-let isAudioConnected = false;
+let audioSourceNode;
 
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
 const sendButton = document.getElementById('send-button');
 const chatContainer = document.getElementById('chat-container');
-
 const typingIndicator = document.getElementById('typing-indicator');
 
 init();
@@ -87,17 +84,17 @@ function init() {
 
     clock = new THREE.Clock();
     
+    audioPlayer = document.getElementById('audio-player');
+    
     animate();
     
     window.addEventListener('resize', onWindowResize, false);
 }
-
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
-
 function loadVRMModel() {
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
@@ -119,19 +116,12 @@ function loadVRMModel() {
                 return;
             }
 
-            // >> PERUBAHAN << Menonaktifkan update otomatis model oleh VRM agar animasi kita tidak bentrok
             vrm.lookAt.autoUpdate = false;
-            // << AKHIR PERUBAHAN >>
-
             scene.add(vrm.scene);
-            
             vrm.scene.rotation.y = Math.PI;
             
             console.log('VRM scene added to main scene');
-
-            // >> PERUBAHAN << Tambahkan log ini untuk membantu debugging jika peta tulang perlu disesuaikan
-            console.log("VRM Humanoid Bones:", vrm.humanoid);
-            // << AKHIR PERUBAHAN >>
+            console.log("VRM Humanoid Bones:", vrm.humanoid.humanBones);
 
             mixer = new THREE.AnimationMixer(vrm.scene);
             loadAnimations();
@@ -151,66 +141,9 @@ function loadVRMModel() {
     );
 }
 
-// >> PERUBAHAN << Peta untuk menerjemahkan nama tulang dari Mixamo ke standar VRM Humanoid
 const mixamoVRMRigMap = {
-    'mixamorigHips': 'hips',
-    'mixamorigSpine': 'spine',
-    'mixamorigSpine1': 'chest',
-    'mixamorigSpine2': 'upperChest',
-    'mixamorigNeck': 'neck',
-    'mixamorigHead': 'head',
-    'mixamorigLeftShoulder': 'leftShoulder',
-    'mixamorigLeftArm': 'leftUpperArm',
-    'mixamorigLeftForeArm': 'leftLowerArm',
-    'mixamorigLeftHand': 'leftHand',
-    'mixamorigRightShoulder': 'rightShoulder',
-    'mixamorigRightArm': 'rightUpperArm',
-    'mixamorigRightForeArm': 'rightLowerArm',
-    'mixamorigRightHand': 'rightHand',
-    'mixamorigLeftUpLeg': 'leftUpperLeg',
-    'mixamorigLeftLeg': 'leftLowerLeg',
-    'mixamorigLeftFoot': 'leftFoot',
-    'mixamorigLeftToeBase': 'leftToes',
-    'mixamorigRightUpLeg': 'rightUpperLeg',
-    'mixamorigRightLeg': 'rightLowerLeg',
-    'mixamorigRightFoot': 'rightFoot',
-    'mixamorigRightToeBase': 'rightToes',
-    // Jari Tangan Kiri
-    'mixamorigLeftHandThumb1': 'leftThumbMetacarpal',
-    'mixamorigLeftHandThumb2': 'leftThumbProximal',
-    'mixamorigLeftHandThumb3': 'leftThumbDistal',
-    'mixamorigLeftHandIndex1': 'leftIndexProximal',
-    'mixamorigLeftHandIndex2': 'leftIndexIntermediate',
-    'mixamorigLeftHandIndex3': 'leftIndexDistal',
-    'mixamorigLeftHandMiddle1': 'leftMiddleProximal',
-    'mixamorigLeftHandMiddle2': 'leftMiddleIntermediate',
-    'mixamorigLeftHandMiddle3': 'leftMiddleDistal',
-    'mixamorigLeftHandRing1': 'leftRingProximal',
-    'mixamorigLeftHandRing2': 'leftRingIntermediate',
-    'mixamorigLeftHandRing3': 'leftRingDistal',
-    'mixamorigLeftHandPinky1': 'leftLittleProximal',
-    'mixamorigLeftHandPinky2': 'leftLittleIntermediate',
-    'mixamorigLeftHandPinky3': 'leftLittleDistal',
-    // Jari Tangan Kanan
-    'mixamorigRightHandThumb1': 'rightThumbMetacarpal',
-    'mixamorigRightHandThumb2': 'rightThumbProximal',
-    'mixamorigRightHandThumb3': 'rightThumbDistal',
-    'mixamorigRightHandIndex1': 'rightIndexProximal',
-    'mixamorigRightHandIndex2': 'rightIndexIntermediate',
-    'mixamorigRightHandIndex3': 'rightIndexDistal',
-    'mixamorigRightHandMiddle1': 'rightMiddleProximal',
-    'mixamorigRightHandMiddle2': 'rightMiddleIntermediate',
-    'mixamorigRightHandMiddle3': 'rightMiddleDistal',
-    'mixamorigRightHandRing1': 'rightRingProximal',
-    'mixamorigRightHandRing2': 'rightRingIntermediate',
-    'mixamorigRightHandRing3': 'rightRingDistal',
-    'mixamorigRightHandPinky1': 'rightLittleProximal',
-    'mixamorigRightHandPinky2': 'rightLittleIntermediate',
-    'mixamorigRightHandPinky3': 'rightLittleDistal',
+    'mixamorigHips': 'hips', 'mixamorigSpine': 'spine', 'mixamorigSpine1': 'chest', 'mixamorigSpine2': 'upperChest', 'mixamorigNeck': 'neck', 'mixamorigHead': 'head', 'mixamorigLeftShoulder': 'leftShoulder', 'mixamorigLeftArm': 'leftUpperArm', 'mixamorigLeftForeArm': 'leftLowerArm', 'mixamorigLeftHand': 'leftHand', 'mixamorigRightShoulder': 'rightShoulder', 'mixamorigRightArm': 'rightUpperArm', 'mixamorigRightForeArm': 'rightLowerArm', 'mixamorigRightHand': 'rightHand', 'mixamorigLeftUpLeg': 'leftUpperLeg', 'mixamorigLeftLeg': 'leftLowerLeg', 'mixamorigLeftFoot': 'leftFoot', 'mixamorigLeftToeBase': 'leftToes', 'mixamorigRightUpLeg': 'rightUpperLeg', 'mixamorigRightLeg': 'rightLowerLeg', 'mixamorigRightFoot': 'rightFoot', 'mixamorigRightToeBase': 'rightToes', 'mixamorigLeftHandThumb1': 'leftThumbMetacarpal', 'mixamorigLeftHandThumb2': 'leftThumbProximal', 'mixamorigLeftHandThumb3': 'leftThumbDistal', 'mixamorigLeftHandIndex1': 'leftIndexProximal', 'mixamorigLeftHandIndex2': 'leftIndexIntermediate', 'mixamorigLeftHandIndex3': 'leftIndexDistal', 'mixamorigLeftHandMiddle1': 'leftMiddleProximal', 'mixamorigLeftHandMiddle2': 'leftMiddleIntermediate', 'mixamorigLeftHandMiddle3': 'leftMiddleDistal', 'mixamorigLeftHandRing1': 'leftRingProximal', 'mixamorigLeftHandRing2': 'leftRingIntermediate', 'mixamorigLeftHandRing3': 'leftRingDistal', 'mixamorigLeftHandPinky1': 'leftLittleProximal', 'mixamorigLeftHandPinky2': 'leftLittleIntermediate', 'mixamorigLeftHandPinky3': 'leftLittleDistal', 'mixamorigRightHandThumb1': 'rightThumbMetacarpal', 'mixamorigRightHandThumb2': 'rightThumbProximal', 'mixamorigRightHandThumb3': 'rightThumbDistal', 'mixamorigRightHandIndex1': 'rightIndexProximal', 'mixamorigRightHandIndex2': 'rightIndexIntermediate', 'mixamorigRightHandIndex3': 'rightIndexDistal', 'mixamorigRightHandMiddle1': 'rightMiddleProximal', 'mixamorigRightHandMiddle2': 'rightMiddleIntermediate', 'mixamorigRightHandMiddle3': 'rightMiddleDistal', 'mixamorigRightHandRing1': 'rightRingProximal', 'mixamorigRightHandRing2': 'rightRingIntermediate', 'mixamorigRightHandRing3': 'rightRingDistal', 'mixamorigRightHandPinky1': 'rightLittleProximal', 'mixamorigRightHandPinky2': 'rightLittleIntermediate', 'mixamorigRightHandPinky3': 'rightLittleDistal',
 };
-// << AKHIR PERUBAHAN >>
-
-// >> PERUBAHAN << Fungsi untuk me-retarget animasi
 function retargetAnimation(clip, vrmInstance) {
     const newTracks = [];
     for (const track of clip.tracks) {
@@ -220,7 +153,7 @@ function retargetAnimation(clip, vrmInstance) {
 
         const vrmBoneName = mixamoVRMRigMap[mixamoBoneName];
         if (vrmBoneName) {
-            const vrmNode = vrmInstance.humanoid.getBoneNode(vrmBoneName);
+            const vrmNode = vrmInstance.humanoid.getRawBoneNode(vrmBoneName);
             if (vrmNode) {
                 const newTrackName = `${vrmNode.name}.${property}`;
                 track.name = newTrackName;
@@ -231,7 +164,31 @@ function retargetAnimation(clip, vrmInstance) {
     clip.tracks = newTracks;
     return clip;
 }
-// << AKHIR PERUBAHAN >>
+
+function makeAnimationInPlace(clip, vrmInstance) {
+    const hipsNode = vrmInstance.humanoid.getRawBoneNode('hips');
+    if (!hipsNode) return clip;
+
+    const hipsNodeName = hipsNode.name;
+    const positionTrackName = `${hipsNodeName}.position`;
+    
+    const positionTrack = clip.tracks.find(t => t.name === positionTrackName);
+
+    if (positionTrack) {
+        const firstFramePosition = {
+            x: positionTrack.values[0],
+            y: positionTrack.values[1],
+            z: positionTrack.values[2]
+        };
+
+        for (let i = 0; i < positionTrack.values.length; i += 3) {
+            positionTrack.values[i] -= firstFramePosition.x;
+            positionTrack.values[i + 2] -= firstFramePosition.z;
+        }
+    }
+    
+    return clip;
+}
 
 function loadAnimations() {
     const fbxLoader = new FBXLoader();
@@ -239,9 +196,8 @@ function loadAnimations() {
 
     fbxLoader.load(`${animPath}idle.fbx`, (object) => {
         console.log('Idle animation loaded');
-        // >> PERUBAHAN << Me-retarget animasi idle sebelum digunakan
-        const idleClip = retargetAnimation(object.animations[0], vrm);
-        // << AKHIR PERUBAHAN >>
+        let idleClip = retargetAnimation(object.animations[0], vrm);
+        idleClip = makeAnimationInPlace(idleClip, vrm);
         idleClip.name = 'idle';
         animationActions.idle = mixer.clipAction(idleClip);
         if (!activeAction) {
@@ -252,9 +208,8 @@ function loadAnimations() {
 
     fbxLoader.load(`${animPath}talking.fbx`, (object) => {
         console.log('Talking animation loaded');
-        // >> PERUBAHAN << Me-retarget animasi talking sebelum digunakan
-        const talkingClip = retargetAnimation(object.animations[0], vrm);
-        // << AKHIR PERUBAHAN >>
+        let talkingClip = retargetAnimation(object.animations[0], vrm);
+        talkingClip = makeAnimationInPlace(talkingClip, vrm);
         talkingClip.name = 'talking';
         animationActions.talking = mixer.clipAction(talkingClip);
     }, undefined, (error) => console.error('Error loading talking animation:', error));
@@ -285,27 +240,15 @@ function animate() {
     }
 
     if (vrm) {
-        // >> PERUBAHAN << Kita tidak lagi memanggil vrm.update() karena itu bisa mengganggu animasi custom kita.
-        // vrm.update(delta); 
-        // << AKHIR PERUBAHAN >>
-        
-        // Logika lip-sync tetap berjalan
         if (isTalking && analyser && vrm.expressionManager) {
             analyser.getByteFrequencyData(dataArray);
             
             let sum = 0;
             let count = 0;
-            
-            for (let i = 2; i < 50; i++) {
-                sum += dataArray[i];
-                count++;
-            }
-            
+            for (let i = 2; i < 50; i++) { sum += dataArray[i]; count++; }
             const averageAmplitude = sum / count;
             const normalizedAmplitude = averageAmplitude / 255;
-            
             const mouthIntensity = Math.max(0, Math.min(1, normalizedAmplitude * 2));
-            
             const currentMouthValue = vrm.expressionManager.getValue('a') || 0;
             const smoothedValue = currentMouthValue * 0.7 + mouthIntensity * 0.3;
             
@@ -334,9 +277,6 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-// ... SISA KODE (initAudioContext hingga akhir) TETAP SAMA SEPERTI SEBELUMNYA ...
-// ... TIDAK PERLU DIUBAH ...
-
 function initAudioContext() {
     if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -349,32 +289,20 @@ function initAudioContext() {
 
 chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    
-    if (!GEMINI_API_KEY || !ELEVENLABS_API_KEY) {
-        addMessage('API Key belum diatur. Silakan cek file config.js atau Environment Variables.', 'ai');
-        return;
-    }
-    
+    if (!GEMINI_API_KEY || !ELEVENLABS_API_KEY) { addMessage('API Key belum diatur. Silakan cek file config.js atau Environment Variables.', 'ai'); return; }
     const userInput = chatInput.value.trim();
     if (!userInput) return;
-    
     addMessage(userInput, 'user');
     chatInput.value = '';
     sendButton.disabled = true;
-    
     typingIndicator.style.display = 'flex';
     chatContainer.scrollTop = chatContainer.scrollHeight;
-    
     try {
         const aiResponseText = await getGeminiResponse(userInput);
-        
         typingIndicator.style.display = 'none';
-
         addMessage(aiResponseText, 'ai');
-        
         const audioBlob = await getElevenLabsAudio(aiResponseText);
         await playAudioWithMouthSync(audioBlob);
-        
     } catch (error) {
         console.error('Error in chat flow:', error);
         typingIndicator.style.display = 'none';
@@ -388,161 +316,52 @@ function addMessage(text, sender) {
     const messageElement = document.createElement('div');
     messageElement.classList.add('message', `${sender}-message`);
     messageElement.innerText = text;
-
     chatContainer.insertBefore(messageElement, typingIndicator);
-    
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
 async function getGeminiResponse(prompt) {
-    if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("MASUKKAN")) {
-        throw new Error("Gemini API Key tidak valid atau belum diatur di config.js.");
-    }
-    
+    if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("MASUKKAN")) { throw new Error("Gemini API Key tidak valid atau belum diatur di config.js."); }
     const modelName = 'gemini-1.5-flash-latest';
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
-    
-    const requestBody = {
-        contents: [{
-            parts: [{
-                text: "Kamu adalah avatar perempuan bernama AURA. Jawablah pertanyaan dengan gaya yang ceria, ramah, dan sedikit gaul. Gunakan bahasa Indonesia yang santai, tapi nulis kata harus benar (jangan begini contoh : semuaa, kitaa, kamuu). Jangan terlalu panjang dan hanya gunakan tanda baca titik, koma, seru, dan tanda tanya. Jawab pertanyaan berikut: " + prompt
-            }]
-        }],
-        safetySettings: [
-            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
-            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
-            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
-            { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
-        ]
-    };
-    
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-    });
-    
+    const requestBody = { contents: [{ parts: [{ text: "Kamu adalah avatar perempuan bernama AURA. Jawablah pertanyaan dengan gaya yang ceria, ramah, dan sedikit gaul. Gunakan bahasa Indonesia yang santai, tapi nulis kata harus benar (jangan begini contoh : semuaa, kitaa, kamuu). Jangan terlalu panjang dan hanya gunakan tanda baca titik, koma, seru, dan tanda tanya. Jawab pertanyaan berikut: " + prompt }] }], safetySettings: [ { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" }, { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" }, { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" }, { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" } ] };
+    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
     const data = await response.json();
-    
-    if (!response.ok) {
-        console.error("Gemini API Error Response:", data);
-        throw new Error(`Gemini API error! status: ${response.status}. Pesan: ${data.error?.message || 'Unknown error'}`);
-    }
-    
-    if (!data.candidates || data.candidates.length === 0) {
-        console.warn("Gemini response was blocked or empty.", data);
-        return "Hmm, sepertinya aku tidak bisa menjawab itu. Mungkin karena filter keamanan. Coba tanya yang lain ya!";
-    }
-    
+    if (!response.ok) { console.error("Gemini API Error Response:", data); throw new Error(`Gemini API error! status: ${response.status}. Pesan: ${data.error?.message || 'Unknown error'}`); }
+    if (!data.candidates || data.candidates.length === 0) { console.warn("Gemini response was blocked or empty.", data); return "Hmm, sepertinya aku tidak bisa menjawab itu. Mungkin karena filter keamanan. Coba tanya yang lain ya!"; }
     return data.candidates[0].content.parts[0].text;
 }
 
 async function getElevenLabsAudio(text) {
-    if (!ELEVENLABS_API_KEY || ELEVENLABS_API_KEY.includes("MASUKKAN")) {
-        throw new Error("ElevenLabs API Key tidak valid atau belum diatur di config.js.");
-    }
-    
+    if (!ELEVENLABS_API_KEY || ELEVENLABS_API_KEY.includes("MASUKKAN")) { throw new Error("ElevenLabs API Key tidak valid atau belum diatur di config.js."); }
     const apiUrl = `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`;
-    const requestBody = {
-        text: text,
-        model_id: "eleven_multilingual_v2",
-        voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-        },
-    };
-    
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': ELEVENLABS_API_KEY,
-        },
-        body: JSON.stringify(requestBody),
-    });
-    
-    if (!response.ok) {
-        const errorData = await response.text();
-        console.error("ElevenLabs API Error Response:", errorData);
-        throw new Error(`ElevenLabs API error! status: ${response.status}`);
-    }
-    
+    const requestBody = { text: text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.75, }, };
+    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'xi-api-key': ELEVENLABS_API_KEY, }, body: JSON.stringify(requestBody), });
+    if (!response.ok) { const errorData = await response.text(); console.error("ElevenLabs API Error Response:", errorData); throw new Error(`ElevenLabs API error! status: ${response.status}`); }
     return response.blob();
 }
 
 function playAudioWithMouthSync(audioBlob) {
     return new Promise((resolve, reject) => {
         initAudioContext();
-        
-        if (audioContext.state === 'suspended') {
-            audioContext.resume();
-        }
-        
-        if (audio) {
-            audio.pause();
-            audio.currentTime = 0;
-        }
-        
-        if (source) {
+        if (audioContext.state === 'suspended') { audioContext.resume().catch(e => console.error("Gagal melanjutkan AudioContext:", e)); }
+        if (!audioSourceNode) {
             try {
-                source.disconnect();
-            } catch (e) {
-                console.log('Source already disconnected');
-            }
-            source = null;
+                audioSourceNode = audioContext.createMediaElementSource(audioPlayer);
+                audioSourceNode.connect(analyser);
+                analyser.connect(audioContext.destination);
+                console.log("Koneksi Web Audio API berhasil dibuat.");
+            } catch (e) { console.error("Gagal membuat koneksi Web Audio API:", e); reject(e); return; }
         }
-        
+        if (audioPlayer.src.startsWith('blob:')) { URL.revokeObjectURL(audioPlayer.src); }
         const audioUrl = URL.createObjectURL(audioBlob);
-        audio = new Audio(audioUrl);
-        audio.crossOrigin = 'anonymous';
-        isAudioConnected = false;
-        
-        audio.oncanplaythrough = () => {
-            try {
-                if (!isAudioConnected) {
-                    source = audioContext.createMediaElementSource(audio);
-                    source.connect(analyser);
-                    analyser.connect(audioContext.destination);
-                    isAudioConnected = true;
-                }
-                
-                isTalking = true;
-                switchAnimation('talking');
-                audio.play().catch(e => {
-                    console.error("Audio play failed:", e);
-                    isTalking = false;
-                    switchAnimation('idle');
-                    reject(e);
-                });
-            } catch (e) {
-                console.error("Audio context setup failed:", e);
-                isTalking = false;
-                switchAnimation('idle');
-                reject(e);
-            }
-        };
-        
-        audio.onended = () => {
-            isTalking = false;
-            switchAnimation('idle');
-            isAudioConnected = false;
-            URL.revokeObjectURL(audioUrl);
-            resolve();
-        };
-        
-        audio.onerror = (err) => {
-            isTalking = false;
-            switchAnimation('idle');
-            isAudioConnected = false;
-            URL.revokeObjectURL(audioUrl);
-            console.error('Audio playback error:', err);
-            reject(err);
-        };
-        
-        audio.onloadeddata = () => {
-            if (audio.readyState >= 2 && !isAudioConnected) {
-                audio.oncanplaythrough();
-            }
-        };
+        audioPlayer.src = audioUrl;
+        audioPlayer.onended = null;
+        audioPlayer.onerror = null;
+        audioPlayer.onended = () => { isTalking = false; switchAnimation('idle'); resolve(); };
+        audioPlayer.onerror = (err) => { isTalking = false; switchAnimation('idle'); console.error('Audio playback error:', err); reject(err); };
+        isTalking = true;
+        switchAnimation('talking');
+        audioPlayer.play().catch(e => { isTalking = false; switchAnimation('idle'); console.error("Audio play failed:", e); reject(e); });
     });
 }
