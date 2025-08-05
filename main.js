@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin } from '@pixiv/three-vrm';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
 let GEMINI_API_KEY, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID;
 
@@ -22,6 +23,9 @@ try {
 
 let scene, camera, renderer, clock;
 let vrm;
+let mixer; 
+let animationActions = {}; 
+let activeAction; 
 let isTalking = false;
 let audio;
 let audioContext;
@@ -35,16 +39,24 @@ const chatInput = document.getElementById('chat-input');
 const sendButton = document.getElementById('send-button');
 const chatContainer = document.getElementById('chat-container');
 
+const typingIndicator = document.getElementById('typing-indicator');
+
 init();
 loadVRMModel();
+
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        addMessage("Halo! Aku AURA, teman virtualmu. Ada yang bisa aku bantu?", 'ai');
+    }, 1000);
+});
 
 function init() {
     scene = new THREE.Scene();
     scene.background = null;
     
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 2, 2.5);
-    camera.lookAt(0, 1.3, 0);
+    camera.position.set(0, 1.4, 2.5);
+    camera.lookAt(0, 1.0, 0);
 
     const canvas = document.querySelector('#canvas');
     renderer = new THREE.WebGLRenderer({
@@ -107,22 +119,23 @@ function loadVRMModel() {
                 return;
             }
 
+            // >> PERUBAHAN << Menonaktifkan update otomatis model oleh VRM agar animasi kita tidak bentrok
+            vrm.lookAt.autoUpdate = false;
+            // << AKHIR PERUBAHAN >>
+
             scene.add(vrm.scene);
-            
-            vrm.scene.position.set(0, 0, 0);
-            vrm.scene.rotation.set(0, 0, 0);
-            vrm.scene.scale.set(1, 1, 1);
             
             vrm.scene.rotation.y = Math.PI;
             
-            vrm.scene.position.y = 0.5;
-            
             console.log('VRM scene added to main scene');
-            console.log('Scene children count:', scene.children.length);
-            console.log('VRM scene position:', vrm.scene.position);
-            console.log('VRM scene rotation:', vrm.scene.rotation);
-            console.log('VRM scene scale:', vrm.scene.scale);
-            
+
+            // >> PERUBAHAN << Tambahkan log ini untuk membantu debugging jika peta tulang perlu disesuaikan
+            console.log("VRM Humanoid Bones:", vrm.humanoid);
+            // << AKHIR PERUBAHAN >>
+
+            mixer = new THREE.AnimationMixer(vrm.scene);
+            loadAnimations();
+
             renderer.render(scene, camera);
             
             console.log('VRM model loaded and positioned successfully!');
@@ -138,14 +151,145 @@ function loadVRMModel() {
     );
 }
 
+// >> PERUBAHAN << Peta untuk menerjemahkan nama tulang dari Mixamo ke standar VRM Humanoid
+const mixamoVRMRigMap = {
+    'mixamorigHips': 'hips',
+    'mixamorigSpine': 'spine',
+    'mixamorigSpine1': 'chest',
+    'mixamorigSpine2': 'upperChest',
+    'mixamorigNeck': 'neck',
+    'mixamorigHead': 'head',
+    'mixamorigLeftShoulder': 'leftShoulder',
+    'mixamorigLeftArm': 'leftUpperArm',
+    'mixamorigLeftForeArm': 'leftLowerArm',
+    'mixamorigLeftHand': 'leftHand',
+    'mixamorigRightShoulder': 'rightShoulder',
+    'mixamorigRightArm': 'rightUpperArm',
+    'mixamorigRightForeArm': 'rightLowerArm',
+    'mixamorigRightHand': 'rightHand',
+    'mixamorigLeftUpLeg': 'leftUpperLeg',
+    'mixamorigLeftLeg': 'leftLowerLeg',
+    'mixamorigLeftFoot': 'leftFoot',
+    'mixamorigLeftToeBase': 'leftToes',
+    'mixamorigRightUpLeg': 'rightUpperLeg',
+    'mixamorigRightLeg': 'rightLowerLeg',
+    'mixamorigRightFoot': 'rightFoot',
+    'mixamorigRightToeBase': 'rightToes',
+    // Jari Tangan Kiri
+    'mixamorigLeftHandThumb1': 'leftThumbMetacarpal',
+    'mixamorigLeftHandThumb2': 'leftThumbProximal',
+    'mixamorigLeftHandThumb3': 'leftThumbDistal',
+    'mixamorigLeftHandIndex1': 'leftIndexProximal',
+    'mixamorigLeftHandIndex2': 'leftIndexIntermediate',
+    'mixamorigLeftHandIndex3': 'leftIndexDistal',
+    'mixamorigLeftHandMiddle1': 'leftMiddleProximal',
+    'mixamorigLeftHandMiddle2': 'leftMiddleIntermediate',
+    'mixamorigLeftHandMiddle3': 'leftMiddleDistal',
+    'mixamorigLeftHandRing1': 'leftRingProximal',
+    'mixamorigLeftHandRing2': 'leftRingIntermediate',
+    'mixamorigLeftHandRing3': 'leftRingDistal',
+    'mixamorigLeftHandPinky1': 'leftLittleProximal',
+    'mixamorigLeftHandPinky2': 'leftLittleIntermediate',
+    'mixamorigLeftHandPinky3': 'leftLittleDistal',
+    // Jari Tangan Kanan
+    'mixamorigRightHandThumb1': 'rightThumbMetacarpal',
+    'mixamorigRightHandThumb2': 'rightThumbProximal',
+    'mixamorigRightHandThumb3': 'rightThumbDistal',
+    'mixamorigRightHandIndex1': 'rightIndexProximal',
+    'mixamorigRightHandIndex2': 'rightIndexIntermediate',
+    'mixamorigRightHandIndex3': 'rightIndexDistal',
+    'mixamorigRightHandMiddle1': 'rightMiddleProximal',
+    'mixamorigRightHandMiddle2': 'rightMiddleIntermediate',
+    'mixamorigRightHandMiddle3': 'rightMiddleDistal',
+    'mixamorigRightHandRing1': 'rightRingProximal',
+    'mixamorigRightHandRing2': 'rightRingIntermediate',
+    'mixamorigRightHandRing3': 'rightRingDistal',
+    'mixamorigRightHandPinky1': 'rightLittleProximal',
+    'mixamorigRightHandPinky2': 'rightLittleIntermediate',
+    'mixamorigRightHandPinky3': 'rightLittleDistal',
+};
+// << AKHIR PERUBAHAN >>
+
+// >> PERUBAHAN << Fungsi untuk me-retarget animasi
+function retargetAnimation(clip, vrmInstance) {
+    const newTracks = [];
+    for (const track of clip.tracks) {
+        const trackSplits = track.name.split('.');
+        const mixamoBoneName = trackSplits[0];
+        const property = trackSplits[1];
+
+        const vrmBoneName = mixamoVRMRigMap[mixamoBoneName];
+        if (vrmBoneName) {
+            const vrmNode = vrmInstance.humanoid.getBoneNode(vrmBoneName);
+            if (vrmNode) {
+                const newTrackName = `${vrmNode.name}.${property}`;
+                track.name = newTrackName;
+                newTracks.push(track);
+            }
+        }
+    }
+    clip.tracks = newTracks;
+    return clip;
+}
+// << AKHIR PERUBAHAN >>
+
+function loadAnimations() {
+    const fbxLoader = new FBXLoader();
+    const animPath = './assets/animations/';
+
+    fbxLoader.load(`${animPath}idle.fbx`, (object) => {
+        console.log('Idle animation loaded');
+        // >> PERUBAHAN << Me-retarget animasi idle sebelum digunakan
+        const idleClip = retargetAnimation(object.animations[0], vrm);
+        // << AKHIR PERUBAHAN >>
+        idleClip.name = 'idle';
+        animationActions.idle = mixer.clipAction(idleClip);
+        if (!activeAction) {
+            activeAction = animationActions.idle;
+            animationActions.idle.play();
+        }
+    }, undefined, (error) => console.error('Error loading idle animation:', error));
+
+    fbxLoader.load(`${animPath}talking.fbx`, (object) => {
+        console.log('Talking animation loaded');
+        // >> PERUBAHAN << Me-retarget animasi talking sebelum digunakan
+        const talkingClip = retargetAnimation(object.animations[0], vrm);
+        // << AKHIR PERUBAHAN >>
+        talkingClip.name = 'talking';
+        animationActions.talking = mixer.clipAction(talkingClip);
+    }, undefined, (error) => console.error('Error loading talking animation:', error));
+}
+
+function switchAnimation(actionName) {
+    if (activeAction === animationActions[actionName] || !animationActions[actionName]) {
+        return;
+    }
+    
+    const nextAction = animationActions[actionName];
+    nextAction.reset().play();
+    
+    if (activeAction) {
+        activeAction.crossFadeTo(nextAction, 0.3, true); 
+    }
+    
+    activeAction = nextAction;
+}
+
 function animate() {
     requestAnimationFrame(animate);
     
     const delta = clock.getDelta();
 
+    if (mixer) {
+        mixer.update(delta);
+    }
+
     if (vrm) {
-        vrm.update(delta);
+        // >> PERUBAHAN << Kita tidak lagi memanggil vrm.update() karena itu bisa mengganggu animasi custom kita.
+        // vrm.update(delta); 
+        // << AKHIR PERUBAHAN >>
         
+        // Logika lip-sync tetap berjalan
         if (isTalking && analyser && vrm.expressionManager) {
             analyser.getByteFrequencyData(dataArray);
             
@@ -190,6 +334,9 @@ function animate() {
     renderer.render(scene, camera);
 }
 
+// ... SISA KODE (initAudioContext hingga akhir) TETAP SAMA SEPERTI SEBELUMNYA ...
+// ... TIDAK PERLU DIUBAH ...
+
 function initAudioContext() {
     if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -214,10 +361,15 @@ chatForm.addEventListener('submit', async (e) => {
     addMessage(userInput, 'user');
     chatInput.value = '';
     sendButton.disabled = true;
-    sendButton.innerText = '...';
+    
+    typingIndicator.style.display = 'flex';
+    chatContainer.scrollTop = chatContainer.scrollHeight;
     
     try {
         const aiResponseText = await getGeminiResponse(userInput);
+        
+        typingIndicator.style.display = 'none';
+
         addMessage(aiResponseText, 'ai');
         
         const audioBlob = await getElevenLabsAudio(aiResponseText);
@@ -225,10 +377,10 @@ chatForm.addEventListener('submit', async (e) => {
         
     } catch (error) {
         console.error('Error in chat flow:', error);
+        typingIndicator.style.display = 'none';
         addMessage('Maaf, terjadi kesalahan. Coba lagi nanti. Lihat console untuk detail.', 'ai');
     } finally {
         sendButton.disabled = false;
-        sendButton.innerText = 'Kirim';
     }
 });
 
@@ -236,7 +388,9 @@ function addMessage(text, sender) {
     const messageElement = document.createElement('div');
     messageElement.classList.add('message', `${sender}-message`);
     messageElement.innerText = text;
-    chatContainer.appendChild(messageElement);
+
+    chatContainer.insertBefore(messageElement, typingIndicator);
+    
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
@@ -353,20 +507,24 @@ function playAudioWithMouthSync(audioBlob) {
                 }
                 
                 isTalking = true;
+                switchAnimation('talking');
                 audio.play().catch(e => {
                     console.error("Audio play failed:", e);
                     isTalking = false;
+                    switchAnimation('idle');
                     reject(e);
                 });
             } catch (e) {
                 console.error("Audio context setup failed:", e);
                 isTalking = false;
+                switchAnimation('idle');
                 reject(e);
             }
         };
         
         audio.onended = () => {
             isTalking = false;
+            switchAnimation('idle');
             isAudioConnected = false;
             URL.revokeObjectURL(audioUrl);
             resolve();
@@ -374,6 +532,7 @@ function playAudioWithMouthSync(audioBlob) {
         
         audio.onerror = (err) => {
             isTalking = false;
+            switchAnimation('idle');
             isAudioConnected = false;
             URL.revokeObjectURL(audioUrl);
             console.error('Audio playback error:', err);

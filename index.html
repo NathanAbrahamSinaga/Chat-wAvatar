@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VTuber AI Native JS</title>
+    <!-- >> PERUBAHAN << Menambahkan link ke Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500&display=swap" rel="stylesheet">
+    <!-- << AKHIR PERUBAHAN >> -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,10 +18,23 @@
 
     <div id="ui-container">
         <div id="chat-container">
+            <!-- >> PERUBAHAN << Menambahkan elemen untuk indikator "mengetik" -->
+            <div id="typing-indicator">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+            <!-- << AKHIR PERUBAHAN >> -->
         </div>
         <form id="chat-form">
-            <input type="text" id="chat-input" placeholder="Ngobrol" autocomplete="off" required>
-            <button type="submit" id="send-button">Kirim</button>
+            <input type="text" id="chat-input" placeholder="Ngobrol sama AURA..." autocomplete="off" required> <!-- Mengubah placeholder -->
+            <!-- >> PERUBAHAN << Mengganti tombol teks dengan tombol ikon SVG -->
+            <button type="submit" id="send-button" title="Kirim Pesan">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                </svg>
+            </button>
+            <!-- << AKHIR PERUBAHAN >> -->
         </form>
     </div>
 
