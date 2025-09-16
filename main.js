@@ -17,7 +17,6 @@ try {
     }
 } catch (error) {
     console.error("Gagal memuat file konfigurasi (config.js). Pastikan file tersebut ada dan berisi API key yang benar.", error);
-    addMessage("Error: Gagal memuat konfigurasi API. Periksa console untuk detail.", 'ai');
 }
 
 let scene, camera, renderer, clock;
@@ -43,7 +42,7 @@ loadVRMModel();
 
 window.addEventListener('load', () => {
     setTimeout(() => {
-        addMessage("Halo! Aku AURA, teman virtualmu. Ada yang bisa aku bantu?", 'ai');
+        addMessage("Haiii! Aku AURA, senang banget ketemu kamu! Ada yang bisa kubantu? Apa pertanyaanmu? 😊", 'ai');
     }, 1000);
 });
 
@@ -52,8 +51,9 @@ function init() {
     scene.background = null;
     
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 1.4, 2.5);
-    camera.lookAt(0, 1.0, 0);
+    
+    camera.position.set(0, 1.1, 1.8); 
+    camera.lookAt(0, 0.7, 0);
 
     const canvas = document.querySelector('#canvas');
     renderer = new THREE.WebGLRenderer({
@@ -68,18 +68,18 @@ function init() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
     directionalLight.position.set(5, 10, 5);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 2048;
     directionalLight.shadow.mapSize.height = 2048;
     scene.add(directionalLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
-    fillLight.position.set(-5, 0, -5);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    fillLight.position.set(-5, 5, -5);
     scene.add(fillLight);
 
     clock = new THREE.Clock();
@@ -99,44 +99,44 @@ function loadVRMModel() {
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
 
-    const modelPath = './assets/IstriOrang.vrm';
+    const modelPath = './assets/IstriOrang.vrm'; 
 
-    console.log('Loading VRM model from:', modelPath);
+    console.log("Mencoba memuat model dari path:", modelPath);
 
     loader.load(
         modelPath,
         (gltf) => {
-            console.log('GLTF loaded:', gltf);
+            console.log("Model BERHASIL dimuat!", gltf);
             
             vrm = gltf.userData.vrm;
             
             if (!vrm) {
-                console.error('VRM data not found in GLTF');
+                console.error('VRM data tidak ditemukan di dalam GLTF');
                 addMessage('Error: VRM data tidak ditemukan dalam file model', 'ai');
                 return;
             }
 
             vrm.lookAt.autoUpdate = false;
-            scene.add(vrm.scene);
-            vrm.scene.rotation.y = Math.PI;
             
-            console.log('VRM scene added to main scene');
-            console.log("VRM Humanoid Bones:", vrm.humanoid.humanBones);
+            
+            scene.add(vrm.scene);
+            
+            console.log("Model VRM ditambahkan ke scene dengan rotasi yang benar.");
 
             mixer = new THREE.AnimationMixer(vrm.scene);
             loadAnimations();
 
             renderer.render(scene, camera);
             
-            console.log('VRM model loaded and positioned successfully!');
+            console.log('Setup model dan animasi selesai!');
         },
         (progress) => {
             const percent = Math.round(100.0 * (progress.loaded / progress.total));
-            console.log(`Loading model... ${percent}%`);
+            console.log(`Memuat model... ${percent}%`);
         },
         (error) => {
-            console.error('Error loading VRM model:', error);
-            addMessage(`Gagal memuat model 3D. Error: ${error.message}`, 'ai');
+            console.error("GAGAL memuat model VRM:", error);
+            addMessage(`Gagal memuat model 3D. Pastikan path file benar dan cek console (F12) untuk detail error.`, 'ai');
         }
     );
 }
@@ -165,115 +165,64 @@ function retargetAnimation(clip, vrmInstance) {
     return clip;
 }
 
-function makeAnimationInPlace(clip, vrmInstance) {
-    const hipsNode = vrmInstance.humanoid.getRawBoneNode('hips');
-    if (!hipsNode) return clip;
-
-    const hipsNodeName = hipsNode.name;
-    const positionTrackName = `${hipsNodeName}.position`;
-    
-    const positionTrack = clip.tracks.find(t => t.name === positionTrackName);
-
-    if (positionTrack) {
-        const firstFramePosition = {
-            x: positionTrack.values[0],
-            y: positionTrack.values[1],
-            z: positionTrack.values[2]
-        };
-
-        for (let i = 0; i < positionTrack.values.length; i += 3) {
-            positionTrack.values[i] -= firstFramePosition.x;
-            positionTrack.values[i + 2] -= firstFramePosition.z;
-        }
-    }
-    
-    return clip;
-}
-
 function loadAnimations() {
     const fbxLoader = new FBXLoader();
     const animPath = './assets/animations/';
 
     fbxLoader.load(`${animPath}idle.fbx`, (object) => {
-        console.log('Idle animation loaded');
+        console.log('Animasi Idle dimuat');
         let idleClip = retargetAnimation(object.animations[0], vrm);
-        idleClip = makeAnimationInPlace(idleClip, vrm);
         idleClip.name = 'idle';
         animationActions.idle = mixer.clipAction(idleClip);
         if (!activeAction) {
             activeAction = animationActions.idle;
             animationActions.idle.play();
         }
-    }, undefined, (error) => console.error('Error loading idle animation:', error));
+    }, undefined, (error) => console.error('Gagal memuat animasi idle:', error));
 
     fbxLoader.load(`${animPath}talking.fbx`, (object) => {
-        console.log('Talking animation loaded');
+        console.log('Animasi Talking dimuat');
         let talkingClip = retargetAnimation(object.animations[0], vrm);
-        talkingClip = makeAnimationInPlace(talkingClip, vrm);
         talkingClip.name = 'talking';
         animationActions.talking = mixer.clipAction(talkingClip);
-    }, undefined, (error) => console.error('Error loading talking animation:', error));
+    }, undefined, (error) => console.error('Gagal memuat animasi talking:', error));
 }
 
 function switchAnimation(actionName) {
-    if (activeAction === animationActions[actionName] || !animationActions[actionName]) {
+    if (!activeAction || activeAction === animationActions[actionName] || !animationActions[actionName]) {
         return;
     }
     
     const nextAction = animationActions[actionName];
     nextAction.reset().play();
     
-    if (activeAction) {
-        activeAction.crossFadeTo(nextAction, 0.3, true); 
-    }
+    activeAction.crossFadeTo(nextAction, 0.3, true); 
     
     activeAction = nextAction;
 }
 
 function animate() {
     requestAnimationFrame(animate);
-    
     const delta = clock.getDelta();
-
     if (mixer) {
         mixer.update(delta);
     }
-
     if (vrm) {
+        vrm.update(delta);
         if (isTalking && analyser && vrm.expressionManager) {
             analyser.getByteFrequencyData(dataArray);
-            
             let sum = 0;
-            let count = 0;
-            for (let i = 2; i < 50; i++) { sum += dataArray[i]; count++; }
-            const averageAmplitude = sum / count;
+            for (let i = 2; i < 50; i++) { sum += dataArray[i]; }
+            const averageAmplitude = sum / 48;
             const normalizedAmplitude = averageAmplitude / 255;
-            const mouthIntensity = Math.max(0, Math.min(1, normalizedAmplitude * 2));
+            const mouthIntensity = Math.max(0, Math.min(1, normalizedAmplitude * 2.5));
             const currentMouthValue = vrm.expressionManager.getValue('a') || 0;
             const smoothedValue = currentMouthValue * 0.7 + mouthIntensity * 0.3;
-            
             vrm.expressionManager.setValue('a', smoothedValue);
-            
-            if (mouthIntensity > 0.3) {
-                const randomVariation = Math.random() * 0.2;
-                if (Math.random() > 0.5) {
-                    vrm.expressionManager.setValue('i', randomVariation);
-                    vrm.expressionManager.setValue('u', 0);
-                } else {
-                    vrm.expressionManager.setValue('u', randomVariation);
-                    vrm.expressionManager.setValue('i', 0);
-                }
-            } else {
-                vrm.expressionManager.setValue('i', 0);
-                vrm.expressionManager.setValue('u', 0);
-            }
         } else if (vrm.expressionManager && !isTalking) {
             vrm.expressionManager.setValue('a', 0);
-            vrm.expressionManager.setValue('i', 0);
-            vrm.expressionManager.setValue('u', 0);
         }
     }
-
     renderer.render(scene, camera);
 }
 
@@ -309,6 +258,7 @@ chatForm.addEventListener('submit', async (e) => {
         addMessage('Maaf, terjadi kesalahan. Coba lagi nanti. Lihat console untuk detail.', 'ai');
     } finally {
         sendButton.disabled = false;
+        chatInput.focus();
     }
 });
 
@@ -362,6 +312,6 @@ function playAudioWithMouthSync(audioBlob) {
         audioPlayer.onerror = (err) => { isTalking = false; switchAnimation('idle'); console.error('Audio playback error:', err); reject(err); };
         isTalking = true;
         switchAnimation('talking');
-        audioPlayer.play().catch(e => { isTalking = false; switchAnimation('idle'); console.error("Audio play failed:", e); reject(e); });
+        audioPlayer.play().catch(e => { isTalkin = false; switchAnimation('idle'); console.error("Audio play failed:", e); reject(e); });
     });
 }
