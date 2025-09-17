@@ -136,7 +136,10 @@ async function loadAnimations() {
             const vrmStandardName = mixamoVrmMap[mixamoBoneName];
             
             if (vrmStandardName) {
-                const vrmBone = vrm.humanoid.getBoneNode(vrmStandardName);
+                // >> PERUBAHAN DI SINI << Menggunakan fungsi yang benar
+                const vrmBone = vrm.humanoid.getRawBoneNode(vrmStandardName);
+                // << AKHIR PERUBAHAN >>
+
                 if (vrmBone) {
                     track.name = `${vrmBone.name}.${trackNameParts[1]}`;
                     newTracks.push(track);
