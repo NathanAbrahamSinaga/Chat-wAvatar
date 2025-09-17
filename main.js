@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin } from '@pixiv/three-vrm';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 let scene, camera, renderer, clock;
 let vrm;
 let audioPlayer;
 let GEMINI_API_KEY, VOICEVOX_API_KEY;
 let chatHistory = [];
+let mixer;
+const animations = {};
+let currentAction;
 
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
@@ -14,7 +18,7 @@ const sendButton = document.getElementById('send-button');
 const chatContainer = document.getElementById('chat-container');
 const typingIndicator = document.getElementById('typing-indicator');
 
-const SPEAKER_ID = 14; // Meimei Himari - Normal
+const SPEAKER_ID = 14;
 
 const SYSTEM_INSTRUCTION = {
     role: "model",
@@ -82,6 +86,8 @@ function loadVRMModel() {
                 vrm = gltf.userData.vrm;
                 scene.add(vrm.scene);
                 console.log('Model VRM berhasil dimuat.');
+                mixer = new THREE.AnimationMixer(vrm.scene);
+                loadAnimations();
                 resolve();
             },
             undefined,
@@ -94,10 +100,106 @@ function loadVRMModel() {
     });
 }
 
+function retarget(animationClip, fbx) {
+    const tracks = [];
+    const vrmHipsNode = vrm.humanoid.getRawBoneNode('hips');
+    const mixamoHipsNode = fbx.getObjectByName('mixamorigHips');
+
+    if (!vrmHipsNode || !mixamoHipsNode) {
+        console.error("Tulang pinggul (hips) tidak ditemukan.");
+        return animationClip;
+    }
+
+    const vrmHipsMatrix = vrmHipsNode.matrixWorld.clone();
+    const mixamoHipsMatrix = mixamoHipsNode.matrixWorld.clone();
+
+    const vrmHipsQuat = new THREE.Quaternion().setFromRotationMatrix(vrmHipsMatrix);
+    const mixamoHipsQuat = new THREE.Quaternion().setFromRotationMatrix(mixamoHipsMatrix);
+
+    const fixRot = vrmHipsQuat.multiply(mixamoHipsQuat.invert());
+
+    const mixamoVrmMap = {
+        'mixamorigHips': 'hips', 'mixamorigSpine': 'spine', 'mixamorigSpine1': 'chest',
+        'mixamorigSpine2': 'upperChest', 'mixamorigNeck': 'neck', 'mixamorigHead': 'head',
+        'mixamorigLeftShoulder': 'leftShoulder', 'mixamorigLeftArm': 'leftUpperArm',
+        'mixamorigLeftForeArm': 'leftLowerArm', 'mixamorigLeftHand': 'leftHand',
+        'mixamorigRightShoulder': 'rightShoulder', 'mixamorigRightArm': 'rightUpperArm',
+        'mixamorigRightForeArm': 'rightLowerArm', 'mixamorigRightHand': 'rightHand',
+        'mixamorigLeftUpLeg': 'leftUpperLeg', 'mixamorigLeftLeg': 'leftLowerLeg',
+        'mixamorigLeftFoot': 'leftFoot', 'mixamorigLeftToeBase': 'leftToes',
+        'mixamorigRightUpLeg': 'rightUpperLeg', 'mixamorigRightLeg': 'rightLowerLeg',
+        'mixamorigRightFoot': 'rightFoot', 'mixamorigRightToeBase': 'rightToes',
+    };
+
+    animationClip.tracks.forEach(track => {
+        const trackNameParts = track.name.split('.');
+        const mixamoBoneName = trackNameParts[0];
+        const vrmBoneName = mixamoVrmMap[mixamoBoneName];
+
+        if (vrmBoneName) {
+            const vrmBoneNode = vrm.humanoid.getRawBoneNode(vrmBoneName);
+            if (vrmBoneNode) {
+                const newTrack = track.clone();
+                if (newTrack.name.endsWith('.quaternion')) {
+                    if (vrmBoneName === 'hips') {
+                        for (let i = 0; i < newTrack.values.length; i += 4) {
+                            const quaternion = new THREE.Quaternion().fromArray(newTrack.values, i);
+                            quaternion.premultiply(fixRot);
+                            quaternion.toArray(newTrack.values, i);
+                        }
+                    }
+                }
+                newTrack.name = `${vrmBoneNode.name}.${trackNameParts[1]}`;
+                tracks.push(newTrack);
+            }
+        }
+    });
+
+    return new THREE.AnimationClip(animationClip.name, animationClip.duration, tracks);
+}
+
+
+async function loadAnimations() {
+    const fbxLoader = new FBXLoader();
+    try {
+        const idleFbx = await fbxLoader.loadAsync('./assets/animations/Idle.fbx');
+        const idleClip = retarget(idleFbx.animations[0], idleFbx);
+        animations['idle'] = mixer.clipAction(idleClip);
+        animations['idle'].loop = THREE.LoopRepeat;
+
+        const talkFbx = await fbxLoader.loadAsync('./assets/animations/Talking.fbx');
+        const talkClip = retarget(talkFbx.animations[0], talkFbx);
+        animations['talk'] = mixer.clipAction(talkClip);
+        animations['talk'].loop = THREE.LoopRepeat;
+        
+        console.log('Animasi berhasil dimuat dan diremap.');
+        playAnimation('idle');
+
+    } catch (error) {
+        console.error("Gagal memuat file animasi:", error);
+        addMessage("Gagal memuat animasi. Avatar mungkin tidak bergerak.", 'ai');
+    }
+}
+
+function playAnimation(name) {
+    if (currentAction === animations[name]) return;
+    const newAction = animations[name];
+    if (!newAction) {
+        console.warn(`Animasi "${name}" tidak ditemukan.`);
+        return;
+    }
+    if (currentAction) {
+        currentAction.fadeOut(0.5);
+    }
+    newAction.reset().setEffectiveWeight(1).fadeIn(0.5).play();
+    currentAction = newAction;
+}
+
 function animate() {
     requestAnimationFrame(animate);
     const delta = clock.getDelta();
     if (vrm) vrm.update(delta);
+    if (mixer) mixer.update(delta);
     renderer.render(scene, camera);
 }
 
@@ -113,24 +215,18 @@ chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const userInput = chatInput.value.trim();
     if (!userInput || !GEMINI_API_KEY) return;
-
     addMessage(userInput, 'user');
     chatInput.value = '';
     sendButton.disabled = true;
     typingIndicator.style.display = 'flex';
-
     try {
         const aiResponseText = await getGeminiResponse(userInput);
         typingIndicator.style.display = 'none';
-
         addMessage(aiResponseText, 'ai');
-
         const translatedText = await translateToJapanese(aiResponseText);
         console.log(`Teks terjemahan: ${translatedText}`);
-        
         const audioBlob = await getTtsAudio(translatedText);
         await playAudio(audioBlob);
-
     } catch (error) {
         console.error('Error in chat flow:', error);
         typingIndicator.style.display = 'none';
@@ -167,12 +263,9 @@ async function translateToJapanese(text) {
 
 async function getGeminiResponse(userInput) {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
-    
     chatHistory.push({ role: "user", parts: [{ text: userInput }] });
-
     const historyLimit = 10;
     const recentHistory = chatHistory.length > historyLimit ? chatHistory.slice(-historyLimit) : chatHistory;
-
     const requestBody = {
         contents: recentHistory,
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -183,42 +276,33 @@ async function getGeminiResponse(userInput) {
             { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
         ]
     };
-    
     try {
         const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
         const data = await response.json();
-        
         if (!response.ok || !data.candidates || data.candidates.length === 0) {
             console.error("Gemini API Error:", data);
-            chatHistory.pop(); // Hapus pesan user terakhir jika gagal
+            chatHistory.pop();
             return "Aduh, maaf, sepertinya aku sedang sedikit pusing. Coba tanya lagi nanti, ya!";
         }
-        
         const aiResponseText = data.candidates[0].content.parts[0].text;
         chatHistory.push({ role: "model", parts: [{ text: aiResponseText }] });
-        
         return aiResponseText;
-
     } catch (error) {
         console.error("Error getting Gemini response:", error);
-        chatHistory.pop(); // Hapus pesan user terakhir jika gagal
+        chatHistory.pop();
         return "Waduh, koneksiku sedang eror. Bisa tanya lagi?";
     }
 }
 
 async function getTtsAudio(text) {
     if (!text) return new Blob();
-
     console.log(`Using Speaker ID: ${SPEAKER_ID} (Meimei Himari)`);
-
     const params = new URLSearchParams({
         key: VOICEVOX_API_KEY,
         speaker: SPEAKER_ID,
         text: text,
     });
-
     const apiUrl = `https://deprecatedapis.tts.quest/v2/voicevox/audio/?${params.toString()}`;
-
     try {
         const response = await fetch(apiUrl);
         if (!response.ok) {
@@ -241,8 +325,20 @@ function playAudio(audioBlob) {
     return new Promise((resolve, reject) => {
         const audioUrl = URL.createObjectURL(audioBlob);
         audioPlayer.src = audioUrl;
-        audioPlayer.onended = () => { URL.revokeObjectURL(audioUrl); resolve(); };
-        audioPlayer.onerror = (err) => { URL.revokeObjectURL(audioUrl); reject(err); };
-        audioPlayer.play().catch(reject);
+        audioPlayer.onended = () => { 
+            URL.revokeObjectURL(audioUrl); 
+            playAnimation('idle');
+            resolve(); 
+        };
+        audioPlayer.onerror = (err) => { 
+            URL.revokeObjectURL(audioUrl); 
+            playAnimation('idle');
+            reject(err); 
+        };
+        audioPlayer.play()
+            .then(() => {
+                playAnimation('talk');
+            })
+            .catch(reject);
     });
 }
